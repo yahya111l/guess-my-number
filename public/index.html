@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Guess My Number</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink:    #0f0e11;
+      --paper:  #f5f0e8;
+      --accent: #e84545;
+      --gold:   #f5a623;
+      --dim:    #7a7570;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Space Mono', monospace;
+      background: var(--paper);
+      color: var(--ink);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Noise overlay */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 9999;
+    }
+
+    h1, h2, .display { font-family: 'Syne', sans-serif; }
+
+    /* ── Screens ── */
+    .screen { display: none; }
+    .screen.active { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; }
+
+    /* ── Cards ── */
+    .card {
+      background: white;
+      border: 2px solid var(--ink);
+      border-radius: 0;
+      box-shadow: 6px 6px 0 var(--ink);
+      padding: 2rem;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    /* ── Inputs ── */
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      border: 2px solid var(--ink);
+      padding: 0.6rem 0.8rem;
+      font-family: 'Space Mono', monospace;
+      font-size: 1rem;
+      background: var(--paper);
+      outline: none;
+      transition: box-shadow 0.15s;
+    }
+    input:focus { box-shadow: 4px 4px 0 var(--accent); }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-block;
+      padding: 0.65rem 1.4rem;
+      border: 2px solid var(--ink);
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.1s;
+      box-shadow: 4px 4px 0 var(--ink);
+      background: white;
+      text-align: center;
+    }
+    .btn:hover  { transform: translate(-2px,-2px); box-shadow: 6px 6px 0 var(--ink); }
+    .btn:active { transform: translate(2px,2px);   box-shadow: 2px 2px 0 var(--ink); }
+    .btn.primary   { background: var(--ink);    color: var(--paper); }
+    .btn.accent    { background: var(--accent); color: white; }
+    .btn.gold      { background: var(--gold);   color: var(--ink); }
+    .btn.ghost     { background: transparent;   color: var(--ink); }
+    .btn:disabled  { opacity: 0.4; pointer-events: none; }
+
+    /* ── Badge ── */
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border: 1.5px solid var(--ink);
+      font-size: 0.7rem;
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* ── Room code ── */
+    .room-code {
+      font-family: 'Syne', sans-serif;
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: 0.25em;
+      color: var(--accent);
+      border: 2px dashed var(--accent);
+      padding: 0.5rem 1.5rem;
+      text-align: center;
+    }
+
+    /* ── Guess history ── */
+    #guess-history {
+      max-height: 160px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+    }
+    .guess-entry {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.4rem 0;
+      border-bottom: 1px dashed #ddd;
+      font-size: 0.82rem;
+      animation: slideIn 0.2s ease;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Response tag ── */
+    .resp-higher { color: #2563eb; font-weight: 700; }
+    .resp-lower  { color: #dc2626; font-weight: 700; }
+    .resp-correct{ color: #16a34a; font-weight: 700; }
+
+    /* ── Turn banner ── */
+    #turn-banner {
+      text-align: center;
+      padding: 0.6rem 1rem;
+      border: 2px solid var(--ink);
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 0.85rem;
+      letter-spacing: 0.05em;
+      transition: background 0.3s, color 0.3s;
+    }
+    #turn-banner.your-turn  { background: var(--gold); color: var(--ink); }
+    #turn-banner.their-turn { background: var(--ink);  color: var(--paper); }
+    #turn-banner.waiting    { background: #e5e5e5;     color: var(--dim); }
+
+    /* ── Pulse spinner ── */
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid var(--ink);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Win animation ── */
+    @keyframes pop {
+      0%   { transform: scale(0.7); opacity: 0; }
+      60%  { transform: scale(1.15); }
+      100% { transform: scale(1);   opacity: 1; }
+    }
+    .pop { animation: pop 0.4s cubic-bezier(.34,1.56,.64,1) forwards; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+      background: var(--ink); color: var(--paper);
+      padding: 0.6rem 1.4rem;
+      font-size: 0.85rem;
+      border: 2px solid var(--accent);
+      box-shadow: 4px 4px 0 var(--accent);
+      opacity: 0; transition: opacity 0.25s; z-index: 1000;
+      pointer-events: none; white-space: nowrap;
+    }
+    #toast.show { opacity: 1; }
+
+    /* ── Response buttons ── */
+    #response-area { display: none; }
+    .response-btn-group { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; }
+
+    /* ── Decorative header ── */
+    .game-logo {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: clamp(2rem, 7vw, 3.5rem);
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+    .logo-num {
+      color: var(--accent);
+      display: inline-block;
+      animation: wobble 3s ease-in-out infinite;
+    }
+    @keyframes wobble {
+      0%,100% { transform: rotate(-3deg); }
+      50%      { transform: rotate(3deg); }
+    }
+
+    /* ── Divider ── */
+    .divider {
+      display: flex; align-items: center; gap: 0.7rem;
+      color: var(--dim); font-size: 0.75rem; letter-spacing: 0.1em;
+    }
+    .divider::before,.divider::after {
+      content: ''; flex: 1; height: 1px; background: #ccc;
+    }
+
+    /* Small util */
+    .label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); margin-bottom: 0.3rem; }
+    .gap-stack > * + * { margin-top: 0.75rem; }
+
+    /* ── شاشة الحب الإضافية (معدلة ومحسنة للموبايل) ── */
+    #screen-love-secret {
+      display: none;
+      background: linear-gradient(135deg, #ffeef2 0%, #ffd1dc 100%);
+      font-family: 'Cairo', sans-serif;
+      position: fixed; inset: 0; z-index: 99999;
+      overflow-y: auto;
+      padding: 1rem;
+      box-sizing: border-box;
+    }
+    #screen-love-secret.active { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    
+    /* تأثير القلوب الطائرة */
+    .floating-heart {
+      position: absolute; bottom: -50px; color: #ff4d6d; font-size: 2rem; opacity: 0.8; pointer-events: none;
+      animation: floatUp var(--duration) linear infinite; z-index: 1;
+    }
+    @keyframes floatUp {
+      0% { transform: translateY(0) translateX(0) scale(0.5); opacity: 0; }
+      10% { opacity: 0.8; }
+      90% { opacity: 0.8; }
+      100% { transform: translateY(-110vh) translateX(var(--drift)) scale(var(--scale)); opacity: 0; }
+    }
+
+    /* كارت الكمارو المبدئي */
+    .camaro-box {
+      cursor: pointer; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      text-align: center; z-index: 5;
+      width: 100%; max-width: 400px;
+    }
+    .camaro-box:hover { transform: scale(1.03); }
+    .camaro-idle-img {
+      width: 100%; height: auto;
+      filter: drop-shadow(6px 6px 0px #0f0e11);
+    }
+    .click-hint {
+      margin-top: 1rem; font-weight: 700; color: #0f0e11; background: white;
+      padding: 0.5rem 1rem; border: 2px solid #0f0e11; box-shadow: 4px 4px 0px #0f0e11;
+      display: inline-block; font-size: 0.85rem;
+    }
+    
+    .camaro-box.opened { display: none; }
+
+    /* حاوية الرسالة الجديدة المصممة للموبايل */
+    .love-letter-paper {
+      display: none; position: relative; width: 100%; max-width: 430px;
+      max-height: 90vh; /* تضمن عدم خروج الكارت من شاشة الموبايل */
+      background: white; border: 3px solid #0f0e11; box-shadow: 6px 6px 0 #0f0e11;
+      z-index: 10; animation: pop 0.4s cubic-bezier(.34,1.56,.64,1) forwards;
+      overflow-y: auto; /* لو الرسالة طويلة تخليه يعمل سكرول مريح جداً داخل الكارت */
+    }
+    .camaro-box.opened + .love-letter-paper { display: block; }
+
+    /* صورة الدريفت */
+    .drift-background-container { 
+      width: 100%; 
+      background: #fff;
+      border-bottom: 2px dashed #0f0e11;
+    }
+    .camaro-drift-img { width: 100%; height: auto; display: block; }
+
+    /* حاوية النص المريحة أسفل الصورة مباشرة */
+    .message-content-area {
+      padding: 1.2rem 1rem;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    
+    .message-content-area p {
+      font-size: 0.95rem; 
+      line-height: 1.6; 
+      color: #1a1a1a; 
+      font-weight: 700; 
+      direction: rtl; 
+      text-align: center;
+      background: #fff0f3; 
+      border: 2px dashed #ff4d6d; 
+      padding: 1rem 0.8rem;
+      margin-bottom: 1rem;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+
+<div id="screen-lobby" class="screen active">
+  <div style="text-align:center; margin-bottom:2rem;">
+    <div class="game-logo">GUESS<br>MY <span class="logo-num">№</span></div>
+    <p style="font-size:0.8rem; color:var(--dim); margin-top:0.5rem;">A real-time multiplayer number game</p>
+  </div>
+
+  <div class="card gap-stack">
+    <div>
+      <p class="label">Your name</p>
+      <input type="text" id="player-name" placeholder="e.g. AlphaGuesser" maxlength="20" />
+    </div>
+
+    <button class="btn primary" style="width:100%" onclick="findMatch()">⚡ Quick Match</button>
+
+    <div class="divider">OR</div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+      <button class="btn" id="btn-create-room-custom" onclick="createPrivateRoom()">🔐 Create Room</button>
+      <button class="btn ghost" id="btn-join-room-custom" onclick="showJoinRoomCustom()">🔗 Join Room</button>
+    </div>
+
+    <div id="join-room-area" style="display:none;" class="gap-stack">
+      <div>
+        <p class="label">Room Code</p>
+        <input type="text" id="room-code-input" placeholder="ABC123" maxlength="6" style="text-transform:uppercase; letter-spacing:0.15em;" />
+      </div>
+      <button class="btn accent" style="width:100%" onclick="joinRoomCustom()">Join →</button>
+    </div>
+  </div>
+</div>
+
+<div id="screen-waiting" class="screen">
+  <div class="card" style="text-align:center;" class="gap-stack">
+    <div class="spinner" style="margin-bottom:1.2rem;"></div>
+    <h2 style="font-size:1.3rem; font-weight:800;" id="waiting-title">Finding opponent…</h2>
+    <p style="font-size:0.8rem; color:var(--dim); margin-top:0.3rem;" id="waiting-sub">Hang tight!</p>
+
+    <div id="room-code-display" style="display:none; margin-top:1.2rem;">
+      <p class="label" style="margin-bottom:0.5rem;">Share this code with your friend</p>
+      <div class="room-code" id="room-code-show">------</div>
+      <button class="btn ghost" style="margin-top:0.8rem; width:100%; font-size:0.78rem;" onclick="copyCode()">📋 Copy Code</button>
+    </div>
+
+    <button class="btn" style="margin-top:1.5rem; width:100%; font-size:0.78rem;" onclick="cancelAndGoLobby()" id="cancel-btn">← Back to Lobby</button>
+  </div>
+</div>
+
+<div id="screen-setup" class="screen">
+  <div class="card gap-stack">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="font-weight:800; font-size:1.2rem;">Secret Number</h2>
+      <span class="badge" id="setup-opponent-badge">vs ???</span>
+    </div>
+    <p style="font-size:0.82rem; color:var(--dim);">Pick a secret number (1–100). Your opponent will try to guess it.</p>
+
+    <div>
+      <p class="label">Your secret</p>
+      <input type="number" id="secret-input" placeholder="e.g. 42" min="1" max="100" />
+    </div>
+
+    <button class="btn primary" style="width:100%" onclick="submitSecret()" id="secret-btn">🔒 Lock It In</button>
+
+    <div id="waiting-other" style="display:none; text-align:center;">
+      <div class="spinner" style="margin-top:0.5rem;"></div>
+      <p style="font-size:0.78rem; color:var(--dim); margin-top:0.5rem;">Waiting for opponent to set their number…</p>
+    </div>
+  </div>
+</div>
+
+<div id="screen-game" class="screen">
+  <div class="card gap-stack" style="max-width:500px;">
+
+    <div id="turn-banner" class="waiting">WAITING…</div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem;">
+      <span>👤 <strong id="game-you-name">You</strong></span>
+      <span style="color:var(--dim); font-size:0.7rem;">vs</span>
+      <span>👤 <strong id="game-opp-name">Opponent</strong></span>
+    </div>
+
+    <div>
+      <p class="label">Guess History</p>
+      <div id="guess-history" style="min-height:60px;">
+        <p style="font-size:0.78rem; color:var(--dim); text-align:center; padding:1rem 0;">No guesses yet</p>
+      </div>
+    </div>
+
+    <div id="guess-area">
+      <p class="label">Your Guess</p>
+      <div style="display:flex; gap:0.5rem;">
+        <input type="number" id="guess-input" placeholder="1–100" min="1" max="100" style="flex:1" onkeydown="if(event.key==='Enter') sendGuess()" />
+        <button class="btn primary" onclick="sendGuess()" id="guess-btn">→</button>
+      </div>
+    </div>
+
+    <div id="response-area">
+      <div style="background:var(--ink); color:var(--paper); padding:0.8rem 1rem; margin-bottom:0.7rem;">
+        <p style="font-size:0.7rem; letter-spacing:0.08em; opacity:0.6; margin-bottom:0.2rem;">OPPONENT'S GUESS</p>
+        <p style="font-family:'Syne',sans-serif; font-size:2rem; font-weight:800;" id="opp-guess-display">—</p>
+      </div>
+      <p class="label" style="margin-bottom:0.4rem;">Your response</p>
+      <div class="response-btn-group">
+        <button class="btn" style="background:#dbeafe; border-color:#2563eb; color:#2563eb;" onclick="sendResponse('higher')">▲ Higher</button>
+        <button class="btn accent" onclick="sendResponse('correct')">✓ Correct!</button>
+        <button class="btn" style="background:#fee2e2; border-color:#dc2626; color:#dc2626;" onclick="sendResponse('lower')">▼ Lower</button>
+      </div>
+    </div>
+
+    <div id="waiting-response" style="display:none; text-align:center; padding:0.5rem;">
+      <div class="spinner"></div>
+      <p style="font-size:0.78rem; color:var(--dim); margin-top:0.5rem;">Waiting for opponent's response…</p>
+    </div>
+
+  </div>
+</div>
+
+<div id="screen-end" class="screen">
+  <div class="card pop" style="text-align:center;" class="gap-stack">
+    <div id="end-icon" style="font-size:3.5rem; margin-bottom:0.5rem;"></div>
+    <h2 style="font-size:1.6rem; font-weight:800;" id="end-title"></h2>
+    <p style="font-size:0.85rem; color:var(--dim); margin-top:0.3rem;" id="end-subtitle"></p>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem; padding:1rem; background:var(--paper); border:2px solid var(--ink);">
+      <div>
+        <p class="label">Your Secret</p>
+        <p style="font-family:'Syne',sans-serif; font-size:1.8rem; font-weight:800;" id="end-your-num">—</p>
+      </div>
+      <div>
+        <p class="label">Their Secret</p>
+        <p style="font-family:'Syne',sans-serif; font-size:1.8rem; font-weight:800; color:var(--accent);" id="end-opp-num">—</p>
+      </div>
+    </div>
+
+    <div style="margin-top:1rem;" id="rematch-area">
+      <button class="btn gold" style="width:100%;" onclick="requestRematch()">🔄 Play Again</button>
+      <p style="font-size:0.72rem; color:var(--dim); margin-top:0.5rem;" id="rematch-status"></p>
+    </div>
+
+    <button class="btn" style="width:100%; margin-top:0.5rem;" onclick="goLobby()">← Main Menu</button>
+  </div>
+</div>
+
+<div id="screen-disconnected" class="screen">
+  <div class="card" style="text-align:center;">
+    <div style="font-size:3rem; margin-bottom:1rem;">📡</div>
+    <h2 style="font-weight:800; font-size:1.3rem;" id="dc-title">Opponent Disconnected</h2>
+    <p style="font-size:0.82rem; color:var(--dim); margin-top:0.3rem;" id="dc-sub">The game has ended.</p>
+    <button class="btn primary" style="width:100%; margin-top:1.5rem;" onclick="goLobby()">← Back to Lobby</button>
+  </div>
+</div>
+
+<div id="screen-love-secret">
+  
+  <div class="camaro-box" id="love-envelope" onclick="openLoveLetter()">
+    <img src="pro1.png" alt="Camaro Idle" class="camaro-idle-img">
+    <div class="click-hint">اضغطي على العربية لتشغيل المحرك 🏎️🔥</div>
+  </div>
+  
+  <div class="love-letter-paper">
+    <div class="drift-background-container">
+      <img src="pro2.png" alt="Camaro Drifting" class="camaro-drift-img">
+    </div>
+
+    <div class="message-content-area">
+      <h2 style="font-weight: 900; font-size: 1.4rem; color: #ff4d6d; margin-bottom: 0.6rem;">الى نونتي العزيزة ❤️</h2>
+      <p>
+        اتشرف و بكل انبسان ان اقول لكي مبروك لو كنتي عرفتي الكود السري لوحدك ولو انا قولتهولك دا معناه ان يوم ميلادك جه فا دا معناه ايهههههههه كللللللللللللللللللل سنه و انت طيبه يا قطقوتي كبرت القمر و بقت قمرين يحلاوتو طبعا لسه مجهزتش الكلام الي هقولو بس الموقع جاهز اهو فا لو عرفتي يبقا خير و بركه و انت ذكيه لو معرفتيش يبقا مش هتقراي الكلام دا اصلا 💍✨
+      </p>
+      <button class="btn primary" style="width: 100%; font-family: 'Cairo'; padding: 0.55rem;" onclick="closeLoveScreen()">رجوع للعبة 🎮</button>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+const state = {
+  name: '',
+  roomCode: '',
+  myId: '',
+  isMyTurn: false,
+  pendingGuess: null,   
+  guessLog: [],         
+};
+
+let secretJoinClicks = 0;
+
+// اتصال السيرفر بـ IP اللاب توب الشخصي على الويندوز
+const socket = io();
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function toast(msg, duration = 2800) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), duration);
+}
+
+function getName() {
+  const n = document.getElementById('player-name').value.trim();
+  if (!n) { toast('Enter your name first!'); return null; }
+  return n;
+}
+
+function showJoinRoomCustom() {
+  const nameInput = document.getElementById('player-name').value.trim();
+  if (nameInput === '3102009') {
+    secretJoinClicks++;
+  } else {
+    secretJoinClicks = 0; 
+  }
+
+  const area = document.getElementById('join-room-area');
+  area.style.display = area.style.display === 'none' ? 'block' : 'none';
+}
+
+function findMatch() {
+  const name = getName(); if (!name) return;
+  state.name = name;
+  socket.emit('find_match', { name });
+  document.getElementById('waiting-title').textContent = 'Finding opponent…';
+  document.getElementById('waiting-sub').textContent = 'Searching for someone to play with…';
+  document.getElementById('room-code-display').style.display = 'none';
+  document.getElementById('cancel-btn').style.display = '';
+  showScreen('screen-waiting');
+}
+
+function createPrivateRoom() {
+  const name = getName(); if (!name) return;
+  state.name = name;
+  socket.emit('create_room', { name });
+  document.getElementById('waiting-title').textContent = 'Room Created!';
+  document.getElementById('waiting-sub').textContent = 'Share the code below with your friend.';
+  document.getElementById('cancel-btn').style.display = '';
+  showScreen('screen-waiting');
+}
+
+function joinRoomCustom() {
+  const name = getName(); if (!name) return;
+  const code = document.getElementById('room-code-input').value.toUpperCase().trim();
+  
+  if (name === '3102009' && secretJoinClicks >= 7 && code === '') {
+    triggerLoveSecret();
+    return;
+  }
+
+  if (code.length < 4) { toast('Enter a valid room code.'); return; }
+  state.name = name;
+  socket.emit('join_room', { name, roomCode: code });
+}
+
+function triggerLoveSecret() {
+  const loveScreen = document.getElementById('screen-love-secret');
+  loveScreen.classList.add('active');
+  
+  document.getElementById('love-envelope').classList.remove('opened');
+  
+  for(let i=0; i<40; i++) {
+    setTimeout(createFloatingHeart, i * 150);
+  }
+}
+
+function createFloatingHeart() {
+  const container = document.getElementById('screen-love-secret');
+  if (!container || !container.classList.contains('active')) return;
+  
+  const heart = document.createElement('div');
+  heart.className = 'floating-heart';
+  heart.innerHTML = ['❤️','💖','💝','💘','💕'][Math.floor(Math.random() * 5)];
+  
+  heart.style.left = Math.random() * 100 + 'vw';
+  heart.style.setProperty('--duration', (Math.random() * 3 + 3) + 's');
+  heart.style.setProperty('--drift', (Math.random() * 200 - 100) + 'px');
+  heart.style.setProperty('--scale', Math.random() * 0.8 + 0.6);
+  
+  container.appendChild(heart);
+  
+  setTimeout(() => { heart.remove(); }, 6000);
+}
+
+function openLoveLetter() {
+  document.getElementById('love-envelope').classList.add('opened');
+}
+
+function closeLoveScreen() {
+  document.getElementById('screen-love-secret').classList.remove('active');
+  secretJoinClicks = 0; 
+  goLobby();
+}
+
+function copyCode() {
+  navigator.clipboard.writeText(state.roomCode).then(() => toast('Code copied! 📋'));
+}
+
+function cancelAndGoLobby() {
+  socket.emit('cancel_match');
+  goLobby();
+}
+
+function goLobby() {
+  state.guessLog = [];
+  state.pendingGuess = null;
+  showScreen('screen-lobby');
+}
+
+function submitSecret() {
+  const val = document.getElementById('secret-input').value;
+  const n = parseInt(val, 10);
+  if (isNaN(n) || n < 1 || n > 100) { toast('Pick a number between 1 and 100!'); return; }
+  socket.emit('set_secret', { number: n });
+  document.getElementById('secret-btn').disabled = true;
+  document.getElementById('waiting-other').style.display = 'block';
+}
+
+function sendGuess() {
+  const val = document.getElementById('guess-input').value;
+  const n = parseInt(val, 10);
+  if (isNaN(n) || n < 1 || n > 100) { toast('Guess must be 1–100!'); return; }
+  state.pendingGuess = n;
+  socket.emit('make_guess', { guess: n });
+  document.getElementById('guess-btn').disabled = true;
+  document.getElementById('guess-input').disabled = true;
+  setGameUI('waiting-response');
+}
+
+function joinRoom() { joinRoomCustom(); }
+
+function sendResponse(response) {
+  socket.emit('send_response', { response });
+  document.querySelectorAll('.response-btn-group button').forEach(b => b.disabled = true);
+}
+
+function setGameUI(mode) {
+  const banner = document.getElementById('turn-banner');
+  const guessArea = document.getElementById('guess-area');
+  const responseArea = document.getElementById('response-area');
+  const waitingResp = document.getElementById('waiting-response');
+
+  guessArea.style.display = 'none';
+  responseArea.style.display = 'none';
+  waitingResp.style.display = 'none';
+  document.getElementById('guess-btn').disabled = false;
+  document.getElementById('guess-input').disabled = false;
+  document.getElementById('guess-input').value = '';
+  document.querySelectorAll('.response-btn-group button').forEach(b => b.disabled = false);
+
+  if (mode === 'your-turn') {
+    banner.className = 'your-turn';
+    banner.textContent = '🎯 YOUR TURN — MAKE A GUESS';
+    guessArea.style.display = 'block';
+  } else if (mode === 'their-turn') {
+    banner.className = 'their-turn';
+    banner.textContent = '⏳ OPPONENT IS GUESSING…';
+  } else if (mode === 'respond') {
+    banner.className = 'your-turn';
+    banner.textContent = '👀 OPPONENT GUESSED — RESPOND!';
+    responseArea.style.display = 'block';
+  } else if (mode === 'waiting-response') {
+    banner.className = 'waiting';
+    banner.textContent = '⏳ AWAITING RESPONSE…';
+    waitingResp.style.display = 'block';
+  }
+}
+
+function addGuessEntry({ guesserName, guess, response }) {
+  const hist = document.getElementById('guess-history');
+  const ph = hist.querySelector('p');
+  if (ph) ph.remove();
+
+  const isMe = guesserName === state.name;
+  const respClass = `resp-${response}`;
+  const respLabel = response === 'higher' ? '▲ Higher' : response === 'lower' ? '▼ Lower' : '✓ Correct!';
+
+  const entry = document.createElement('div');
+  entry.className = 'guess-entry';
+  entry.innerHTML = `
+    <span><strong>${isMe ? 'You' : guesserName}</strong> guessed <strong>${guess}</strong></span>
+    <span class="${respClass}">${respLabel}</span>
+  `;
+  hist.prepend(entry);
+}
+
+function requestRematch() {
+  socket.emit('request_rematch');
+  document.getElementById('rematch-status').textContent = 'Waiting for opponent to accept…';
+  document.querySelector('#rematch-area .btn').disabled = true;
+}
+
+// ── SOCKET EVENTS ──
+socket.on('connect', () => { state.myId = socket.id; });
+socket.on('waiting_for_match', () => { showScreen('screen-waiting'); });
+socket.on('match_cancelled', () => {});
+socket.on('room_created', ({ roomCode }) => {
+  state.roomCode = roomCode;
+  document.getElementById('room-code-show').textContent = roomCode;
+  document.getElementById('room-code-display').style.display = 'block';
+});
+socket.on('waiting_for_opponent', ({ roomCode }) => {
+  state.roomCode = roomCode;
+  showScreen('screen-waiting');
+});
+socket.on('join_error', ({ message }) => { toast('⚠ ' + message, 3500); });
+socket.on('room_state', (data) => {
+  state.roomCode = data.roomCode;
+  if (data.state === 'setup') {
+    document.getElementById('setup-opponent-badge').textContent = `vs ${data.opponentName || '???'}`;
+    showScreen('screen-setup');
+    if (data.youReady) {
+      document.getElementById('secret-btn').disabled = true;
+      document.getElementById('waiting-other').style.display = 'block';
+    } else {
+      document.getElementById('secret-btn').disabled = false;
+      document.getElementById('waiting-other').style.display = 'none';
+    }
+  }
+  if (data.state === 'playing') {
+    document.getElementById('game-you-name').textContent = state.name;
+    document.getElementById('game-opp-name').textContent = data.opponentName || 'Opponent';
+    showScreen('screen-game');
+    const hist = document.getElementById('guess-history');
+    hist.innerHTML = '';
+    if (data.guessHistory && data.guessHistory.length > 0) {
+      data.guessHistory.forEach(e => addGuessEntry(e));
+    } else {
+      hist.innerHTML = '<p style="font-size:0.78rem;color:var(--dim);text-align:center;padding:1rem 0;">No guesses yet</p>';
+    }
+    if (data.yourTurn) { setGameUI('your-turn'); } else { setGameUI('their-turn'); }
+  }
+});
+socket.on('guess_sent', ({ guess }) => { state.pendingGuess = guess; });
+socket.on('respond_to_guess', ({ guess, guesserName }) => {
+  document.getElementById('opp-guess-display').textContent = guess;
+  state.pendingGuess = guess;
+  state.pendingGuesserName = guesserName;
+  setGameUI('respond');
+});
+socket.on('got_response', ({ response, responderName }) => {
+  const guesserName = state.name;
+  const guess = state.pendingGuess;
+  addGuessEntry({ guesserName, guess, response });
+  if (response !== 'correct') { setGameUI('their-turn'); }
+});
+socket.on('game_over', ({ winnerId, winnerName, secretNumbers, names }) => {
+  const myId = socket.id;
+  const isWinner = winnerId === myId;
+  const opponentId = Object.keys(names).find(id => id !== myId);
+  document.getElementById('end-icon').textContent = isWinner ? '🏆' : '😔';
+  document.getElementById('end-title').textContent = isWinner ? 'You Win!' : `${winnerName} Wins`;
+  document.getElementById('end-subtitle').textContent = isWinner ? 'You cracked the code!' : 'Better luck next time!';
+  document.getElementById('end-your-num').textContent = secretNumbers[myId] ?? '—';
+  document.getElementById('end-opp-num').textContent  = secretNumbers[opponentId] ?? '—';
+  document.getElementById('rematch-status').textContent = '';
+  document.querySelector('#rematch-area .btn').disabled = false;
+  document.getElementById('screen-end').querySelector('.card').classList.remove('pop');
+  void document.getElementById('screen-end').querySelector('.card').offsetWidth; 
+  document.getElementById('screen-end').querySelector('.card').classList.add('pop');
+  showScreen('screen-end');
+});
+socket.on('opponent_wants_rematch', () => {
+  document.getElementById('rematch-status').textContent = '🔄 Opponent wants a rematch!';
+});
+socket.on('opponent_disconnected', () => {
+  document.getElementById('dc-title').textContent = 'Opponent Disconnected';
+  document.getElementById('dc-sub').textContent = 'Your opponent left the game.';
+  showScreen('screen-disconnected');
+});
+socket.on('error_msg', ({ message }) => { toast('⚠ ' + message, 3000); });
+socket.on('disconnect', () => {
+  const activeScreen = document.querySelector('.screen.active');
+  if (activeScreen && ['screen-game','screen-setup'].includes(activeScreen.id)) {
+    document.getElementById('dc-title').textContent = 'Connection Lost';
+    document.getElementById('dc-sub').textContent = 'You were disconnected from the server.';
+    showScreen('screen-disconnected');
+  }
+});
+
+document.getElementById('player-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') findMatch();
+});
+document.getElementById('room-code-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') joinRoomCustom();
+});
+document.getElementById('room-code-input').addEventListener('input', e => {
+  e.target.value = e.target.value.toUpperCase();
+});
+</script>
+</body>
+</html>
