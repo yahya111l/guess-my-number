@@ -128,4 +128,4 @@ Compatible with **Railway**, **Render**, **Fly.io**, **Heroku**, and any VPS.
 
 ## 📄 License
 
-MIT — free to use, modify, and distribute.
+By yahya Shluver 
