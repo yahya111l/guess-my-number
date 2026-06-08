@@ -38,7 +38,7 @@ A real-time **1v1 multiplayer** number guessing game built with Node.js, Express
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting Started (if you want it ofline or localhost)
 
 ### Prerequisites
 
