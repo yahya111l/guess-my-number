@@ -49,7 +49,7 @@ A real-time **1v1 multiplayer** number guessing game built with Node.js, Express
 
 ```bash
 # Clone the repo
-git clone https://github.com/yahya111;/guess-my-number.git
+git clone https://github.com/yahya111/guess-my-number.git
 cd guess-my-number
 
 # Install dependencies
