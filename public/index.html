@@ -264,10 +264,10 @@
     /* حاوية الرسالة الجديدة المصممة للموبايل */
     .love-letter-paper {
       display: none; position: relative; width: 100%; max-width: 430px;
-      max-height: 90vh; /* تضمن عدم خروج الكارت من شاشة الموبايل */
+      max-height: 90vh;
       background: white; border: 3px solid #0f0e11; box-shadow: 6px 6px 0 #0f0e11;
       z-index: 10; animation: pop 0.4s cubic-bezier(.34,1.56,.64,1) forwards;
-      overflow-y: auto; /* لو الرسالة طويلة تخليه يعمل سكرول مريح جداً داخل الكارت */
+      overflow-y: auto;
     }
     .camaro-box.opened + .love-letter-paper { display: block; }
 
@@ -301,9 +301,27 @@
       margin-bottom: 1rem;
       width: 100%;
     }
+
+    /* ── تأثير اهتزاز العربية ── */
+    @keyframes engineShake {
+      0%   { transform: translate(0, 0) rotate(0deg); }
+      15%  { transform: translate(-3px, 1px) rotate(-0.5deg); }
+      30%  { transform: translate(3px, -1px) rotate(0.5deg); }
+      45%  { transform: translate(-2px, 2px) rotate(-0.3deg); }
+      60%  { transform: translate(2px, -2px) rotate(0.3deg); }
+      75%  { transform: translate(-1px, 1px) rotate(-0.2deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
+    .camaro-box.revving .camaro-idle-img {
+      animation: engineShake 0.12s linear infinite;
+      filter: drop-shadow(6px 6px 0px #0f0e11) drop-shadow(0 0 18px #f5a623);
+    }
   </style>
 </head>
 <body>
+
+<!-- ملف الصوت - يتحمل في الخلفية -->
+<audio id="engine-audio" src="نفسي حد يقولي يا كوتي.mp3" preload="auto"></audio>
 
 <div id="screen-lobby" class="screen active">
   <div style="text-align:center; margin-bottom:2rem;">
@@ -493,7 +511,6 @@ const state = {
 
 let secretJoinClicks = 0;
 
-// اتصال السيرفر بـ IP اللاب توب الشخصي على الويندوز
 const socket = io();
 
 function showScreen(id) {
@@ -565,6 +582,7 @@ function triggerLoveSecret() {
   const loveScreen = document.getElementById('screen-love-secret');
   loveScreen.classList.add('active');
   
+  // ريست العربية للحالة الأولى (مش opened)
   document.getElementById('love-envelope').classList.remove('opened');
   
   for(let i=0; i<40; i++) {
@@ -586,15 +604,38 @@ function createFloatingHeart() {
   heart.style.setProperty('--scale', Math.random() * 0.8 + 0.6);
   
   container.appendChild(heart);
-  
   setTimeout(() => { heart.remove(); }, 6000);
 }
 
 function openLoveLetter() {
-  document.getElementById('love-envelope').classList.add('opened');
+  const envelope = document.getElementById('love-envelope');
+  
+  // لو الصوت شغال بالفعل متفعلش حاجة تانية
+  if (envelope.classList.contains('opened')) return;
+
+  // ١- شغّل اهتزاز المحرك
+  envelope.classList.add('revving');
+
+  // ٢- شغّل الأغنية فوراً
+  const audio = document.getElementById('engine-audio');
+  audio.currentTime = 0;
+  audio.play().catch(() => {
+    // لو المتصفح منع التشغيل التلقائي، هيشتغل بعد أول تفاعل (مش هيحصل هنا عادةً)
+  });
+
+  // ٣- بعد 1.2 ثانية افتح الرسالة
+  setTimeout(() => {
+    envelope.classList.remove('revving');
+    envelope.classList.add('opened');
+  }, 1200);
 }
 
 function closeLoveScreen() {
+  // وقّف الأغنية
+  const audio = document.getElementById('engine-audio');
+  audio.pause();
+  audio.currentTime = 0;
+
   document.getElementById('screen-love-secret').classList.remove('active');
   secretJoinClicks = 0; 
   goLobby();
