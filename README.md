@@ -17,7 +17,7 @@ A real-time **1v1 multiplayer** number guessing game built with Node.js, Express
 
 - ⚡ **Real-time gameplay** via WebSockets (Socket.IO)
 - 🎲 **Quick Match** — auto-pairs you with any available online player
-- 🔐 **Private Rooms** — create a room and share a 4-character code with a friend
+- 🔐 **Private Rooms** — create a room and share a 6-character code with a friend
 - 📜 **Live guess history** — full log of every guess and response, updated in real time
 - 🔄 **Rematch system** — both players can vote to play again instantly
 - 📡 **Disconnect handling** — game ends gracefully if a player drops
